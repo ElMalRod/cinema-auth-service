@@ -2,10 +2,14 @@ package com.cinema.auth.service;
 
 import com.cinema.auth.constants.AuthConstants;
 import com.cinema.auth.domain.UserAuth;
+import com.cinema.auth.dto.ChangePasswordRequest;
+import com.cinema.auth.dto.ForgotPasswordRequest;
 import com.cinema.auth.dto.LoginRequest;
 import com.cinema.auth.dto.LoginResponse;
 import com.cinema.auth.dto.MeResponse;
 import com.cinema.auth.dto.RegisterRequest;
+import com.cinema.auth.dto.ResetPasswordRequest;
+import com.cinema.auth.exception.AccountLockedException;
 import com.cinema.auth.exception.InvalidCredentialsException;
 import com.cinema.auth.exception.InvalidTokenException;
 import com.cinema.auth.exception.UserAlreadyExistsException;
@@ -13,10 +17,12 @@ import com.cinema.auth.exception.UserNotFoundException;
 import com.cinema.auth.repository.UserAuthRepository;
 import com.cinema.auth.security.JwtPrincipal;
 import com.cinema.auth.security.JwtProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -26,11 +32,27 @@ public class AuthServiceImpl implements AuthService {
     private final UserAuthRepository repository;
     private final PasswordEncoder passwordEncoder;
     private final JwtProvider jwtProvider;
+    private final PasswordResetService passwordResetService;
+    private final TokenRevocationService tokenRevocationService;
+    private final int maxFailedAttempts;
+    private final int lockMinutes;
 
-    public AuthServiceImpl(UserAuthRepository repository, PasswordEncoder passwordEncoder, JwtProvider jwtProvider) {
+    public AuthServiceImpl(
+            UserAuthRepository repository,
+            PasswordEncoder passwordEncoder,
+            JwtProvider jwtProvider,
+            PasswordResetService passwordResetService,
+            TokenRevocationService tokenRevocationService,
+            @Value("${auth.security.max-failed-attempts:5}") int maxFailedAttempts,
+            @Value("${auth.security.lock-minutes:15}") int lockMinutes
+    ) {
         this.repository = repository;
         this.passwordEncoder = passwordEncoder;
         this.jwtProvider = jwtProvider;
+        this.passwordResetService = passwordResetService;
+        this.tokenRevocationService = tokenRevocationService;
+        this.maxFailedAttempts = maxFailedAttempts;
+        this.lockMinutes = lockMinutes;
     }
 
     @Override
@@ -45,11 +67,15 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
+    @Transactional
     public LoginResponse login(LoginRequest request) {
         UserAuth user = findUserByEmail(normalizeEmail(request.email()));
-        if (!isValidCredentials(request.password(), user)) {
+        validateUserAccess(user);
+        if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
+            registerFailedAttempt(user);
             throw new InvalidCredentialsException();
         }
+        clearFailedAttempts(user);
         return buildLoginResponse(user);
     }
 
@@ -61,10 +87,81 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
+    public void logout(String authorizationHeader) {
+        String token = extractBearerToken(authorizationHeader);
+        if (jwtProvider.parseToken(token).isEmpty()) {
+            throw new InvalidTokenException();
+        }
+        Instant expiration = jwtProvider.extractExpiration(token).orElseThrow(InvalidTokenException::new);
+        tokenRevocationService.revoke(token, expiration);
+    }
+
+    @Override
+    public void requestPasswordRecovery(ForgotPasswordRequest request) {
+        passwordResetService.request(normalizeEmail(request.email()));
+    }
+
+    @Override
+    public void resetPassword(ResetPasswordRequest request) {
+        passwordResetService.reset(request.token().trim(), request.newPassword());
+    }
+
+    @Override
+    @Transactional
+    public void changePassword(String authorizationHeader, ChangePasswordRequest request) {
+        JwtPrincipal principal = parsePrincipal(authorizationHeader);
+        UserAuth user = repository.findById(principal.userId()).orElseThrow(UserNotFoundException::new);
+        validateCurrentPassword(user, request.currentPassword());
+        updateUserPassword(user, request.newPassword());
+    }
+
+    @Override
     @Transactional
     public void deactivateUser(UUID userId) {
         UserAuth user = repository.findById(userId).orElseThrow(UserNotFoundException::new);
         user.setActive(false);
+        user.setUpdatedAt(LocalDateTime.now());
+        repository.save(user);
+    }
+
+    private void validateUserAccess(UserAuth user) {
+        if (!user.isActive()) {
+            throw new InvalidCredentialsException();
+        }
+        if (isTemporarilyLocked(user)) {
+            throw new AccountLockedException();
+        }
+    }
+
+    private boolean isTemporarilyLocked(UserAuth user) {
+        return user.getLockedUntil() != null && user.getLockedUntil().isAfter(LocalDateTime.now());
+    }
+
+    private void registerFailedAttempt(UserAuth user) {
+        int attempts = user.getFailedLoginAttempts() + 1;
+        user.setFailedLoginAttempts(attempts);
+        if (attempts >= maxFailedAttempts) {
+            user.setLockedUntil(LocalDateTime.now().plusMinutes(lockMinutes));
+        }
+        user.setUpdatedAt(LocalDateTime.now());
+        repository.save(user);
+    }
+
+    private void clearFailedAttempts(UserAuth user) {
+        user.setFailedLoginAttempts(0);
+        user.setLockedUntil(null);
+        user.setUpdatedAt(LocalDateTime.now());
+        repository.save(user);
+    }
+
+    private void validateCurrentPassword(UserAuth user, String currentPassword) {
+        if (!passwordEncoder.matches(currentPassword, user.getPasswordHash())) {
+            throw new InvalidCredentialsException();
+        }
+    }
+
+    private void updateUserPassword(UserAuth user, String newPassword) {
+        user.setPasswordHash(passwordEncoder.encode(newPassword));
         user.setUpdatedAt(LocalDateTime.now());
         repository.save(user);
     }
@@ -76,6 +173,8 @@ public class AuthServiceImpl implements AuthService {
                 .passwordHash(passwordEncoder.encode(request.password()))
                 .role(request.role())
                 .active(true)
+                .failedLoginAttempts(0)
+                .lockedUntil(null)
                 .createdAt(now)
                 .updatedAt(now)
                 .build();
@@ -83,10 +182,6 @@ public class AuthServiceImpl implements AuthService {
 
     private UserAuth findUserByEmail(String email) {
         return repository.findByEmail(email).orElseThrow(InvalidCredentialsException::new);
-    }
-
-    private boolean isValidCredentials(String password, UserAuth user) {
-        return user.isActive() && passwordEncoder.matches(password, user.getPasswordHash());
     }
 
     private LoginResponse buildLoginResponse(UserAuth user) {

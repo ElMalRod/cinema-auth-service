@@ -2,6 +2,7 @@ package com.cinema.auth.security;
 
 import com.cinema.auth.constants.AuthConstants;
 import com.cinema.auth.domain.UserRole;
+import com.cinema.auth.service.TokenRevocationService;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.crypto.RSASSAVerifier;
 import com.nimbusds.jwt.SignedJWT;
@@ -30,8 +31,10 @@ class JwtProviderTest {
         // Arrange
         KeyPair keyPair = generateKeyPair();
         RsaKeyProvider keyProvider = mock(RsaKeyProvider.class);
+        TokenRevocationService revocationService = mock(TokenRevocationService.class);
         when(keyProvider.getPrivateKey()).thenReturn((RSAPrivateKey) keyPair.getPrivate());
-        JwtProvider jwtProvider = new JwtProvider(keyProvider, 3600);
+        when(revocationService.isRevoked("token")).thenReturn(false);
+        JwtProvider jwtProvider = new JwtProvider(keyProvider, revocationService, 3600);
         UUID userId = UUID.randomUUID();
 
         // Act
@@ -51,8 +54,9 @@ class JwtProviderTest {
         // Arrange
         KeyPair keyPair = generateKeyPair();
         RsaKeyProvider keyProvider = mock(RsaKeyProvider.class);
+        TokenRevocationService revocationService = mock(TokenRevocationService.class);
         when(keyProvider.getPrivateKey()).thenReturn((RSAPrivateKey) keyPair.getPrivate());
-        JwtProvider jwtProvider = new JwtProvider(keyProvider, 900);
+        JwtProvider jwtProvider = new JwtProvider(keyProvider, revocationService, 900);
 
         // Act
         String token = jwtProvider.generateToken(UUID.randomUUID(), "client@test.com", UserRole.CLIENT);
@@ -70,9 +74,11 @@ class JwtProviderTest {
         // Arrange
         KeyPair keyPair = generateUncheckedKeyPair();
         RsaKeyProvider keyProvider = mock(RsaKeyProvider.class);
+        TokenRevocationService revocationService = mock(TokenRevocationService.class);
         when(keyProvider.getPrivateKey()).thenReturn((RSAPrivateKey) keyPair.getPrivate());
         when(keyProvider.getPublicKey()).thenReturn((RSAPublicKey) keyPair.getPublic());
-        JwtProvider jwtProvider = new JwtProvider(keyProvider, 3600);
+        when(revocationService.isRevoked(org.mockito.ArgumentMatchers.anyString())).thenReturn(false);
+        JwtProvider jwtProvider = new JwtProvider(keyProvider, revocationService, 3600);
         UUID userId = UUID.randomUUID();
 
         // Act
@@ -90,9 +96,11 @@ class JwtProviderTest {
         // Arrange
         KeyPair keyPair = generateUncheckedKeyPair();
         RsaKeyProvider keyProvider = mock(RsaKeyProvider.class);
+        TokenRevocationService revocationService = mock(TokenRevocationService.class);
         when(keyProvider.getPrivateKey()).thenReturn((RSAPrivateKey) keyPair.getPrivate());
         when(keyProvider.getPublicKey()).thenReturn((RSAPublicKey) keyPair.getPublic());
-        JwtProvider jwtProvider = new JwtProvider(keyProvider, -1);
+        when(revocationService.isRevoked(org.mockito.ArgumentMatchers.anyString())).thenReturn(false);
+        JwtProvider jwtProvider = new JwtProvider(keyProvider, revocationService, -1);
 
         // Act
         String token = jwtProvider.generateToken(UUID.randomUUID(), "expired@test.com", UserRole.CLIENT);
@@ -108,13 +116,16 @@ class JwtProviderTest {
         KeyPair signingPair = generateUncheckedKeyPair();
         KeyPair verificationPair = generateUncheckedKeyPair();
 
+        TokenRevocationService revocationService = mock(TokenRevocationService.class);
+        when(revocationService.isRevoked(org.mockito.ArgumentMatchers.anyString())).thenReturn(false);
+
         RsaKeyProvider signProvider = mock(RsaKeyProvider.class);
         when(signProvider.getPrivateKey()).thenReturn((RSAPrivateKey) signingPair.getPrivate());
-        JwtProvider signingJwtProvider = new JwtProvider(signProvider, 3600);
+        JwtProvider signingJwtProvider = new JwtProvider(signProvider, revocationService, 3600);
 
         RsaKeyProvider verifyProvider = mock(RsaKeyProvider.class);
         when(verifyProvider.getPublicKey()).thenReturn((RSAPublicKey) verificationPair.getPublic());
-        JwtProvider verifyJwtProvider = new JwtProvider(verifyProvider, 3600);
+        JwtProvider verifyJwtProvider = new JwtProvider(verifyProvider, revocationService, 3600);
 
         // Act
         String token = signingJwtProvider.generateToken(UUID.randomUUID(), "bad-sign@test.com", UserRole.CLIENT);
@@ -129,11 +140,32 @@ class JwtProviderTest {
         // Arrange
         KeyPair keyPair = generateUncheckedKeyPair();
         RsaKeyProvider keyProvider = mock(RsaKeyProvider.class);
+        TokenRevocationService revocationService = mock(TokenRevocationService.class);
         when(keyProvider.getPublicKey()).thenReturn((RSAPublicKey) keyPair.getPublic());
-        JwtProvider jwtProvider = new JwtProvider(keyProvider, 3600);
+        when(revocationService.isRevoked(org.mockito.ArgumentMatchers.anyString())).thenReturn(false);
+        JwtProvider jwtProvider = new JwtProvider(keyProvider, revocationService, 3600);
 
         // Act
         Optional<JwtPrincipal> principal = jwtProvider.parseToken("malformed-token");
+
+        // Assert
+        assertTrue(principal.isEmpty());
+    }
+
+    @Test
+    void shouldReturnEmptyWhenTokenIsRevoked() {
+        // Arrange
+        KeyPair keyPair = generateUncheckedKeyPair();
+        RsaKeyProvider keyProvider = mock(RsaKeyProvider.class);
+        TokenRevocationService revocationService = mock(TokenRevocationService.class);
+        when(keyProvider.getPrivateKey()).thenReturn((RSAPrivateKey) keyPair.getPrivate());
+        when(keyProvider.getPublicKey()).thenReturn((RSAPublicKey) keyPair.getPublic());
+        JwtProvider jwtProvider = new JwtProvider(keyProvider, revocationService, 3600);
+        String token = jwtProvider.generateToken(UUID.randomUUID(), "revoked@test.com", UserRole.CLIENT);
+        when(revocationService.isRevoked(token)).thenReturn(true);
+
+        // Act
+        Optional<JwtPrincipal> principal = jwtProvider.parseToken(token);
 
         // Assert
         assertTrue(principal.isEmpty());

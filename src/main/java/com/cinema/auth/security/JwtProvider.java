@@ -2,6 +2,7 @@ package com.cinema.auth.security;
 
 import com.cinema.auth.constants.AuthConstants;
 import com.cinema.auth.domain.UserRole;
+import com.cinema.auth.service.TokenRevocationService;
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
@@ -23,13 +24,16 @@ import java.util.UUID;
 public class JwtProvider {
 
     private final RsaKeyProvider rsaKeyProvider;
+    private final TokenRevocationService tokenRevocationService;
     private final long expirationSeconds;
 
     public JwtProvider(
             RsaKeyProvider rsaKeyProvider,
+            TokenRevocationService tokenRevocationService,
             @Value("${auth.jwt.expiration-seconds:3600}") long expirationSeconds
     ) {
         this.rsaKeyProvider = rsaKeyProvider;
+        this.tokenRevocationService = tokenRevocationService;
         this.expirationSeconds = expirationSeconds;
     }
 
@@ -41,10 +45,19 @@ public class JwtProvider {
     }
 
     public Optional<JwtPrincipal> parseToken(String token) {
+        if (tokenRevocationService.isRevoked(token)) {
+            return Optional.empty();
+        }
         return parseSignedToken(token)
                 .filter(this::isSignatureValid)
                 .filter(this::isNotExpired)
                 .flatMap(this::extractPrincipal);
+    }
+
+    public Optional<Instant> extractExpiration(String token) {
+        return parseSignedToken(token)
+                .filter(this::isSignatureValid)
+                .flatMap(this::toExpiration);
     }
 
     private JWTClaimsSet buildClaims(UUID userId, String email, UserRole role) {
@@ -90,11 +103,17 @@ public class JwtProvider {
     }
 
     private boolean isNotExpired(SignedJWT signedJWT) {
+        return toExpiration(signedJWT)
+                .map(expiration -> expiration.isAfter(Instant.now()))
+                .orElse(false);
+    }
+
+    private Optional<Instant> toExpiration(SignedJWT signedJWT) {
         try {
             Date expiration = signedJWT.getJWTClaimsSet().getExpirationTime();
-            return expiration != null && expiration.toInstant().isAfter(Instant.now());
+            return expiration == null ? Optional.empty() : Optional.of(expiration.toInstant());
         } catch (ParseException exception) {
-            return false;
+            return Optional.empty();
         }
     }
 

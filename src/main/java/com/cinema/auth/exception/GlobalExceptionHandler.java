@@ -20,10 +20,22 @@ public class GlobalExceptionHandler {
         return buildErrorResponse(exception.getMessage(), HttpStatus.UNAUTHORIZED, request.getRequestURI());
     }
 
+    @ExceptionHandler(AccountLockedException.class)
+    public ResponseEntity<ErrorResponse> handleAccountLocked(AccountLockedException exception,
+                                                             HttpServletRequest request) {
+        return buildErrorResponse(exception.getMessage(), HttpStatus.UNAUTHORIZED, request.getRequestURI());
+    }
+
     @ExceptionHandler(InvalidTokenException.class)
     public ResponseEntity<ErrorResponse> handleInvalidToken(InvalidTokenException exception,
                                                              HttpServletRequest request) {
         return buildErrorResponse(exception.getMessage(), HttpStatus.UNAUTHORIZED, request.getRequestURI());
+    }
+
+    @ExceptionHandler(ResetTokenException.class)
+    public ResponseEntity<ErrorResponse> handleResetToken(ResetTokenException exception,
+                                                           HttpServletRequest request) {
+        return buildErrorResponse(exception.getMessage(), HttpStatus.BAD_REQUEST, request.getRequestURI());
     }
 
     @ExceptionHandler(UserNotFoundException.class)

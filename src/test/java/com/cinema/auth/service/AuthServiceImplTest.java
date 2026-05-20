@@ -2,10 +2,14 @@ package com.cinema.auth.service;
 
 import com.cinema.auth.domain.UserAuth;
 import com.cinema.auth.domain.UserRole;
+import com.cinema.auth.dto.ChangePasswordRequest;
+import com.cinema.auth.dto.ForgotPasswordRequest;
 import com.cinema.auth.dto.LoginRequest;
 import com.cinema.auth.dto.LoginResponse;
 import com.cinema.auth.dto.MeResponse;
 import com.cinema.auth.dto.RegisterRequest;
+import com.cinema.auth.dto.ResetPasswordRequest;
+import com.cinema.auth.exception.AccountLockedException;
 import com.cinema.auth.exception.InvalidCredentialsException;
 import com.cinema.auth.exception.InvalidTokenException;
 import com.cinema.auth.exception.UserAlreadyExistsException;
@@ -13,14 +17,15 @@ import com.cinema.auth.exception.UserNotFoundException;
 import com.cinema.auth.repository.UserAuthRepository;
 import com.cinema.auth.security.JwtPrincipal;
 import com.cinema.auth.security.JwtProvider;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
@@ -30,6 +35,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -45,8 +51,26 @@ class AuthServiceImplTest {
     @Mock
     private JwtProvider jwtProvider;
 
-    @InjectMocks
+    @Mock
+    private PasswordResetService passwordResetService;
+
+    @Mock
+    private TokenRevocationService tokenRevocationService;
+
     private AuthServiceImpl authService;
+
+    @BeforeEach
+    void setUp() {
+        authService = new AuthServiceImpl(
+                repository,
+                passwordEncoder,
+                jwtProvider,
+                passwordResetService,
+                tokenRevocationService,
+                5,
+                15
+        );
+    }
 
     @Test
     void shouldRegisterUserAndReturnToken() {
@@ -97,6 +121,8 @@ class AuthServiceImplTest {
         // Assert
         assertEquals("login-token", response.token());
         assertEquals("CLIENT", response.role());
+        assertEquals(0, user.getFailedLoginAttempts());
+        assertEquals(null, user.getLockedUntil());
     }
 
     @Test
@@ -113,6 +139,40 @@ class AuthServiceImplTest {
 
         // Assert
         assertEquals("Credenciales invalidas", exception.getMessage());
+        assertEquals(1, user.getFailedLoginAttempts());
+    }
+
+    @Test
+    void shouldLockAccountAfterFiveFailedAttempts() {
+        // Arrange
+        UserAuth user = buildUser(UUID.randomUUID(), "client@test.com", "encoded", UserRole.CLIENT);
+        user.setFailedLoginAttempts(4);
+        when(repository.findByEmail("client@test.com")).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches("wrong", "encoded")).thenReturn(false);
+
+        // Act
+        assertThrows(InvalidCredentialsException.class,
+                () -> authService.login(new LoginRequest("client@test.com", "wrong")));
+
+        // Assert
+        assertEquals(5, user.getFailedLoginAttempts());
+        assertTrue(user.getLockedUntil().isAfter(LocalDateTime.now().plusMinutes(14)));
+    }
+
+    @Test
+    void shouldRejectLockedUserLogin() {
+        // Arrange
+        UserAuth user = buildUser(UUID.randomUUID(), "client@test.com", "encoded", UserRole.CLIENT);
+        user.setLockedUntil(LocalDateTime.now().plusMinutes(10));
+        when(repository.findByEmail("client@test.com")).thenReturn(Optional.of(user));
+
+        // Act
+        RuntimeException exception = assertThrows(AccountLockedException.class,
+                () -> authService.login(new LoginRequest("client@test.com", "password123")));
+
+        // Assert
+        assertEquals("Cuenta bloqueada temporalmente por intentos fallidos", exception.getMessage());
+        verify(passwordEncoder, never()).matches(any(), any());
     }
 
     @Test
@@ -162,6 +222,85 @@ class AuthServiceImplTest {
     }
 
     @Test
+    void shouldLogoutAndRevokeToken() {
+        // Arrange
+        when(jwtProvider.parseToken("logout-token")).thenReturn(Optional.of(
+                new JwtPrincipal(UUID.randomUUID(), "client@test.com", UserRole.CLIENT)
+        ));
+        when(jwtProvider.extractExpiration("logout-token")).thenReturn(Optional.of(Instant.now().plusSeconds(100)));
+
+        // Act
+        authService.logout("Bearer logout-token");
+
+        // Assert
+        verify(tokenRevocationService).revoke(any(), any());
+    }
+
+    @Test
+    void shouldRequestPasswordRecovery() {
+        // Arrange
+        ForgotPasswordRequest request = new ForgotPasswordRequest("Client@Test.com");
+
+        // Act
+        authService.requestPasswordRecovery(request);
+
+        // Assert
+        verify(passwordResetService).request("client@test.com");
+    }
+
+    @Test
+    void shouldResetPassword() {
+        // Arrange
+        ResetPasswordRequest request = new ResetPasswordRequest("plain-token", "newPassword123");
+
+        // Act
+        authService.resetPassword(request);
+
+        // Assert
+        verify(passwordResetService).reset("plain-token", "newPassword123");
+    }
+
+    @Test
+    void shouldChangePasswordWhenCurrentPasswordMatches() {
+        // Arrange
+        UUID userId = UUID.randomUUID();
+        UserAuth user = buildUser(userId, "client@test.com", "encoded", UserRole.CLIENT);
+        JwtPrincipal principal = new JwtPrincipal(userId, "client@test.com", UserRole.CLIENT);
+        ChangePasswordRequest request = new ChangePasswordRequest("password123", "newPassword123");
+        when(jwtProvider.parseToken("change-token")).thenReturn(Optional.of(principal));
+        when(repository.findById(userId)).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches("password123", "encoded")).thenReturn(true);
+        when(passwordEncoder.encode("newPassword123")).thenReturn("encoded-new-password");
+
+        // Act
+        authService.changePassword("Bearer change-token", request);
+
+        // Assert
+        assertEquals("encoded-new-password", user.getPasswordHash());
+        verify(repository).save(user);
+    }
+
+    @Test
+    void shouldRejectPasswordChangeWhenCurrentPasswordDoesNotMatch() {
+        // Arrange
+        UUID userId = UUID.randomUUID();
+        UserAuth user = buildUser(userId, "client@test.com", "encoded", UserRole.CLIENT);
+        JwtPrincipal principal = new JwtPrincipal(userId, "client@test.com", UserRole.CLIENT);
+        ChangePasswordRequest request = new ChangePasswordRequest("wrong-password", "newPassword123");
+        when(jwtProvider.parseToken("change-token")).thenReturn(Optional.of(principal));
+        when(repository.findById(userId)).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches("wrong-password", "encoded")).thenReturn(false);
+
+        // Act
+        RuntimeException exception = assertThrows(InvalidCredentialsException.class,
+                () -> authService.changePassword("Bearer change-token", request));
+
+        // Assert
+        assertEquals("Credenciales invalidas", exception.getMessage());
+        verify(repository, never()).save(user);
+    }
+
+    @Test
     void shouldDeactivateUser() {
         // Arrange
         UUID userId = UUID.randomUUID();
@@ -198,6 +337,8 @@ class AuthServiceImplTest {
                 .passwordHash(passwordHash)
                 .role(role)
                 .active(true)
+                .failedLoginAttempts(0)
+                .lockedUntil(null)
                 .createdAt(now)
                 .updatedAt(now)
                 .build();

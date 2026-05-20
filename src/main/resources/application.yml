@@ -30,3 +30,18 @@ springdoc:
 auth:
   jwt:
     expiration-seconds: ${JWT_EXPIRATION_SECONDS:3600}
+  security:
+    max-failed-attempts: ${AUTH_MAX_FAILED_ATTEMPTS:5}
+    lock-minutes: ${AUTH_LOCK_MINUTES:15}
+  reset-token:
+    expiration-minutes: ${AUTH_RESET_TOKEN_EXPIRATION_MINUTES:30}
+
+app:
+  frontend-base-url: ${FRONTEND_BASE_URL:http://localhost:4200}
+
+notifications:
+  brevo:
+    enabled: ${BREVO_ENABLED:true}
+    api-key: ${BREVO_API_KEY:}
+    sender-email: ${BREVO_SENDER_EMAIL:noreply@cinema.local}
+    sender-name: ${BREVO_SENDER_NAME:cinema}
