@@ -6,14 +6,17 @@ import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.crypto.RSASSASigner;
+import com.nimbusds.jose.crypto.RSASSAVerifier;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.text.ParseException;
 import java.time.Instant;
 import java.util.Date;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -35,6 +38,13 @@ public class JwtProvider {
         SignedJWT signedJwt = createSignedJwt(claims);
         signToken(signedJwt);
         return signedJwt.serialize();
+    }
+
+    public Optional<JwtPrincipal> parseToken(String token) {
+        return parseSignedToken(token)
+                .filter(this::isSignatureValid)
+                .filter(this::isNotExpired)
+                .flatMap(this::extractPrincipal);
     }
 
     private JWTClaimsSet buildClaims(UUID userId, String email, UserRole role) {
@@ -60,6 +70,54 @@ public class JwtProvider {
             signedJwt.sign(signer);
         } catch (JOSEException exception) {
             throw new IllegalStateException("No fue posible firmar el JWT", exception);
+        }
+    }
+
+    private Optional<SignedJWT> parseSignedToken(String token) {
+        try {
+            return Optional.of(SignedJWT.parse(token));
+        } catch (ParseException exception) {
+            return Optional.empty();
+        }
+    }
+
+    private boolean isSignatureValid(SignedJWT signedJWT) {
+        try {
+            return signedJWT.verify(new RSASSAVerifier(rsaKeyProvider.getPublicKey()));
+        } catch (JOSEException exception) {
+            return false;
+        }
+    }
+
+    private boolean isNotExpired(SignedJWT signedJWT) {
+        try {
+            Date expiration = signedJWT.getJWTClaimsSet().getExpirationTime();
+            return expiration != null && expiration.toInstant().isAfter(Instant.now());
+        } catch (ParseException exception) {
+            return false;
+        }
+    }
+
+    private Optional<JwtPrincipal> extractPrincipal(SignedJWT signedJWT) {
+        try {
+            JWTClaimsSet claims = signedJWT.getJWTClaimsSet();
+            return mapPrincipal(claims.getSubject(), claims.getStringClaim(AuthConstants.JWT_CLAIM_EMAIL),
+                    claims.getStringListClaim(AuthConstants.JWT_CLAIM_ROLES));
+        } catch (ParseException exception) {
+            return Optional.empty();
+        }
+    }
+
+    private Optional<JwtPrincipal> mapPrincipal(String subject, String email, List<String> roles) {
+        if (subject == null || email == null || roles == null || roles.isEmpty()) {
+            return Optional.empty();
+        }
+        try {
+            UUID userId = UUID.fromString(subject);
+            UserRole role = UserRole.valueOf(roles.getFirst());
+            return Optional.of(new JwtPrincipal(userId, email, role));
+        } catch (IllegalArgumentException exception) {
+            return Optional.empty();
         }
     }
 }

@@ -7,8 +7,8 @@ import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
-import java.security.PrivateKey;
-import java.security.PublicKey;
+import java.security.interfaces.RSAPrivateKey;
+import java.security.interfaces.RSAPublicKey;
 import java.util.Base64;
 
 @Component
@@ -20,12 +20,12 @@ public class RsaKeyProvider {
         this.keyPair = generateKeyPair();
     }
 
-    public PublicKey getPublicKey() {
-        return keyPair.getPublic();
+    public RSAPublicKey getPublicKey() {
+        return (RSAPublicKey) keyPair.getPublic();
     }
 
-    public PrivateKey getPrivateKey() {
-        return keyPair.getPrivate();
+    public RSAPrivateKey getPrivateKey() {
+        return (RSAPrivateKey) keyPair.getPrivate();
     }
 
     public String getPublicKeyPem() {
