@@ -34,7 +34,7 @@ public class SecurityConfig {
                 }));
         http.authorizeHttpRequests(authorize -> authorize
                 .requestMatchers(HttpMethod.POST, "/auth/login", "/auth/register", "/auth/forgot-password", "/auth/reset-password").permitAll()
-                .requestMatchers(HttpMethod.GET, "/auth/public-key", "/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**").permitAll()
+                .requestMatchers(HttpMethod.GET, "/auth/public-key", "/.well-known/jwks.json", "/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**").permitAll()
                 .requestMatchers(HttpMethod.PATCH, "/auth/deactivate/**").hasRole("SYSTEM_ADMIN")
                 .requestMatchers(HttpMethod.GET, "/auth/me").authenticated()
                 .requestMatchers(HttpMethod.POST, "/auth/logout", "/auth/change-password").authenticated()
