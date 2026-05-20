@@ -1,12 +1,14 @@
 package com.cinema.auth.controller;
 
 import com.cinema.auth.config.SecurityConfig;
+import com.cinema.auth.domain.UserRole;
 import com.cinema.auth.dto.LoginRequest;
 import com.cinema.auth.dto.LoginResponse;
 import com.cinema.auth.dto.MeResponse;
 import com.cinema.auth.dto.RegisterRequest;
+import com.cinema.auth.security.JwtPrincipal;
+import com.cinema.auth.security.JwtProvider;
 import com.cinema.auth.service.AuthService;
-import com.cinema.auth.domain.UserRole;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,6 +18,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -37,6 +40,9 @@ class AuthControllerTest {
 
     @MockBean
     private AuthService authService;
+
+    @MockBean
+    private JwtProvider jwtProvider;
 
     @Test
     void shouldRegisterUser() throws Exception {
@@ -81,6 +87,8 @@ class AuthControllerTest {
         // Arrange
         UUID userId = UUID.randomUUID();
         MeResponse response = new MeResponse(userId, "client@test.com", "CLIENT", true);
+        JwtPrincipal principal = new JwtPrincipal(userId, "client@test.com", UserRole.CLIENT);
+        when(jwtProvider.parseToken("token")).thenReturn(Optional.of(principal));
         when(authService.getCurrentUser("Bearer token")).thenReturn(response);
 
         // Act

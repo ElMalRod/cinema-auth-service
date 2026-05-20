@@ -13,6 +13,8 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcType;
+import org.hibernate.dialect.PostgreSQLEnumJdbcType;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -37,6 +39,7 @@ public class UserAuth {
     private String passwordHash;
 
     @Enumerated(EnumType.STRING)
+    @JdbcType(PostgreSQLEnumJdbcType.class)
     @Column(nullable = false)
     private UserRole role;
 
@@ -49,3 +52,4 @@ public class UserAuth {
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 }
+

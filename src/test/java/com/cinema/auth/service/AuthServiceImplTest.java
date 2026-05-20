@@ -26,6 +26,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -155,6 +156,35 @@ class AuthServiceImplTest {
         // Act
         RuntimeException exception = assertThrows(UserNotFoundException.class,
                 () -> authService.getCurrentUser("Bearer token-value"));
+
+        // Assert
+        assertEquals("Usuario no encontrado", exception.getMessage());
+    }
+
+    @Test
+    void shouldDeactivateUser() {
+        // Arrange
+        UUID userId = UUID.randomUUID();
+        UserAuth user = buildUser(userId, "client@test.com", "encoded", UserRole.CLIENT);
+        when(repository.findById(userId)).thenReturn(Optional.of(user));
+
+        // Act
+        authService.deactivateUser(userId);
+
+        // Assert
+        assertFalse(user.isActive());
+        verify(repository).save(user);
+    }
+
+    @Test
+    void shouldThrowWhenDeactivatingMissingUser() {
+        // Arrange
+        UUID userId = UUID.randomUUID();
+        when(repository.findById(userId)).thenReturn(Optional.empty());
+
+        // Act
+        RuntimeException exception = assertThrows(UserNotFoundException.class,
+                () -> authService.deactivateUser(userId));
 
         // Assert
         assertEquals("Usuario no encontrado", exception.getMessage());

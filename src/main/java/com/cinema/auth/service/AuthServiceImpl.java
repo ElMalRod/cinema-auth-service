@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 @Service
 public class AuthServiceImpl implements AuthService {
@@ -57,6 +58,15 @@ public class AuthServiceImpl implements AuthService {
         JwtPrincipal principal = parsePrincipal(authorizationHeader);
         UserAuth user = repository.findById(principal.userId()).orElseThrow(UserNotFoundException::new);
         return new MeResponse(user.getId(), user.getEmail(), user.getRole().name(), user.isActive());
+    }
+
+    @Override
+    @Transactional
+    public void deactivateUser(UUID userId) {
+        UserAuth user = repository.findById(userId).orElseThrow(UserNotFoundException::new);
+        user.setActive(false);
+        user.setUpdatedAt(LocalDateTime.now());
+        repository.save(user);
     }
 
     private UserAuth buildUser(RegisterRequest request, String email) {

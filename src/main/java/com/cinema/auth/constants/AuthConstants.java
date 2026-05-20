@@ -21,6 +21,7 @@ public final class AuthConstants {
     public static final String AUTH_LOGIN_PATH = "/login";
     public static final String AUTH_REGISTER_PATH = "/register";
     public static final String AUTH_ME_PATH = "/me";
+    public static final String AUTH_DEACTIVATE_PATH = "/deactivate/{id}";
     public static final String AUTHORIZATION_HEADER = "Authorization";
     public static final String BEARER_PREFIX = "Bearer ";
 
