@@ -2,6 +2,13 @@ server:
   port: 8081
 
 spring:
+  kafka:
+    bootstrap-servers: 18.188.55.33:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        spring.json.add.type.headers: false
   application:
     name: cinema-auth-service
   datasource:

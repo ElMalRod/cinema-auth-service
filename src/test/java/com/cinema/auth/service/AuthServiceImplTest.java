@@ -23,10 +23,12 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationContext;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -57,6 +59,9 @@ class AuthServiceImplTest {
     @Mock
     private TokenRevocationService tokenRevocationService;
 
+    @Mock
+    private ApplicationContext applicationContext;
+
     private AuthServiceImpl authService;
 
     @BeforeEach
@@ -67,6 +72,7 @@ class AuthServiceImplTest {
                 jwtProvider,
                 passwordResetService,
                 tokenRevocationService,
+                applicationContext,
                 5,
                 15
         );
@@ -75,12 +81,15 @@ class AuthServiceImplTest {
     @Test
     void shouldRegisterUserAndReturnToken() {
         // Arrange
-        RegisterRequest request = new RegisterRequest("admin@test.com", "password123", UserRole.SYSTEM_ADMIN);
+        RegisterRequest request = new RegisterRequest("Admin Test", "5551234", "admin@test.com", "password123", UserRole.SYSTEM_ADMIN);
         UUID userId = UUID.randomUUID();
+        FakeKafkaTemplate fakeKafkaTemplate = new FakeKafkaTemplate();
         when(repository.existsByEmail("admin@test.com")).thenReturn(false);
         when(passwordEncoder.encode("password123")).thenReturn("encoded-password");
         when(repository.save(any(UserAuth.class))).thenReturn(buildUser(userId, "admin@test.com", "encoded-password", UserRole.SYSTEM_ADMIN));
         when(jwtProvider.generateToken(userId, "admin@test.com", UserRole.SYSTEM_ADMIN)).thenReturn("jwt-token");
+        when(applicationContext.containsBean("kafkaTemplate")).thenReturn(true);
+        when(applicationContext.getBean("kafkaTemplate")).thenReturn(fakeKafkaTemplate);
 
         // Act
         LoginResponse response = authService.register(request);
@@ -91,12 +100,19 @@ class AuthServiceImplTest {
         assertEquals("encoded-password", captor.getValue().getPasswordHash());
         assertEquals("jwt-token", response.token());
         assertEquals(userId, response.userId());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> payload = (Map<String, Object>) fakeKafkaTemplate.payload;
+        assertEquals("user-events", fakeKafkaTemplate.topic);
+        assertEquals("USER_CREATED", payload.get("event"));
+        assertEquals(userId.toString(), payload.get("id"));
+        assertEquals("Admin Test", payload.get("name"));
+        assertEquals("5551234", payload.get("phone"));
     }
 
     @Test
     void shouldThrowWhenRegisteringExistingUser() {
         // Arrange
-        RegisterRequest request = new RegisterRequest("admin@test.com", "password123", UserRole.SYSTEM_ADMIN);
+        RegisterRequest request = new RegisterRequest("Admin Test", "5551234", "admin@test.com", "password123", UserRole.SYSTEM_ADMIN);
         when(repository.existsByEmail("admin@test.com")).thenReturn(true);
 
         // Act
@@ -343,4 +359,16 @@ class AuthServiceImplTest {
                 .updatedAt(now)
                 .build();
     }
+
+    private static final class FakeKafkaTemplate {
+        private String topic;
+        private Object payload;
+
+        public void send(String topic, Object payload) {
+            this.topic = topic;
+            this.payload = payload;
+        }
+    }
 }
+
+

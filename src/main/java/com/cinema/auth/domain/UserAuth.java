@@ -49,6 +49,9 @@ public class UserAuth {
     @Column(nullable = false)
     private boolean active;
 
+    @Column(name = "requires_password_change", nullable = false)
+    private boolean requiresPasswordChange;
+
     @Column(name = "failed_login_attempts", nullable = false)
     private int failedLoginAttempts;
 

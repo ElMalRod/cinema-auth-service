@@ -2,6 +2,10 @@ package com.cinema.auth.service;
 
 import com.cinema.auth.constants.AuthConstants;
 import com.cinema.auth.domain.UserAuth;
+import com.cinema.auth.domain.UserRole;
+import com.cinema.auth.dto.AdminCreateUserRequest;
+import com.cinema.auth.dto.AdminCreateUserResponse;
+import com.cinema.auth.dto.AuthUserSummaryResponse;
 import com.cinema.auth.dto.ChangePasswordRequest;
 import com.cinema.auth.dto.ForgotPasswordRequest;
 import com.cinema.auth.dto.LoginRequest;
@@ -17,23 +21,32 @@ import com.cinema.auth.exception.UserNotFoundException;
 import com.cinema.auth.repository.UserAuthRepository;
 import com.cinema.auth.security.JwtPrincipal;
 import com.cinema.auth.security.JwtProvider;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationContext;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
 public class AuthServiceImpl implements AuthService {
+
+    private static final Logger log = LoggerFactory.getLogger(AuthServiceImpl.class);
 
     private final UserAuthRepository repository;
     private final PasswordEncoder passwordEncoder;
     private final JwtProvider jwtProvider;
     private final PasswordResetService passwordResetService;
     private final TokenRevocationService tokenRevocationService;
+    private final ApplicationContext applicationContext;
     private final int maxFailedAttempts;
     private final int lockMinutes;
 
@@ -43,6 +56,7 @@ public class AuthServiceImpl implements AuthService {
             JwtProvider jwtProvider,
             PasswordResetService passwordResetService,
             TokenRevocationService tokenRevocationService,
+            ApplicationContext applicationContext,
             @Value("${auth.security.max-failed-attempts:5}") int maxFailedAttempts,
             @Value("${auth.security.lock-minutes:15}") int lockMinutes
     ) {
@@ -51,6 +65,7 @@ public class AuthServiceImpl implements AuthService {
         this.jwtProvider = jwtProvider;
         this.passwordResetService = passwordResetService;
         this.tokenRevocationService = tokenRevocationService;
+        this.applicationContext = applicationContext;
         this.maxFailedAttempts = maxFailedAttempts;
         this.lockMinutes = lockMinutes;
     }
@@ -63,6 +78,7 @@ public class AuthServiceImpl implements AuthService {
             throw new UserAlreadyExistsException();
         }
         UserAuth savedUser = repository.save(buildUser(request, email));
+        publishUserCreatedEvent(savedUser.getId(), request.name(), request.phone());
         return buildLoginResponse(savedUser);
     }
 
@@ -124,6 +140,68 @@ public class AuthServiceImpl implements AuthService {
         repository.save(user);
     }
 
+    @Override
+    @Transactional
+    public void activateUser(UUID userId) {
+        UserAuth user = repository.findById(userId).orElseThrow(UserNotFoundException::new);
+        user.setActive(true);
+        user.setFailedLoginAttempts(0);
+        user.setLockedUntil(null);
+        user.setUpdatedAt(LocalDateTime.now());
+        repository.save(user);
+    }
+
+    @Override
+    public boolean existsSystemAdmin() {
+        return repository.existsByRoleAndActiveTrue(UserRole.SYSTEM_ADMIN);
+    }
+
+    @Override
+    @Transactional
+    public AdminCreateUserResponse createUserByAdmin(AdminCreateUserRequest request) {
+        String email = normalizeEmail(request.email());
+        if (repository.existsByEmail(email)) {
+            throw new UserAlreadyExistsException();
+        }
+        UserAuth user = buildUserForAdmin(request, email);
+        UserAuth savedUser = repository.save(user);
+        return mapAdminCreateResponse(savedUser);
+    }
+
+    @Override
+    public List<AuthUserSummaryResponse> listUsers() {
+        return repository.findAllByOrderByCreatedAtDesc().stream().map(this::mapUserSummary).toList();
+    }
+
+    private UserAuth buildUserForAdmin(AdminCreateUserRequest request, String email) {
+        LocalDateTime now = LocalDateTime.now();
+        return UserAuth.builder()
+                .email(email)
+                .passwordHash(passwordEncoder.encode(request.password()))
+                .role(request.role())
+                .active(true)
+                .requiresPasswordChange(request.forcePasswordChange())
+                .failedLoginAttempts(0)
+                .lockedUntil(null)
+                .createdAt(now)
+                .updatedAt(now)
+                .build();
+    }
+
+    private AdminCreateUserResponse mapAdminCreateResponse(UserAuth user) {
+        return new AdminCreateUserResponse(
+                user.getId(),
+                user.getEmail(),
+                user.getRole().name(),
+                user.isActive(),
+                user.isRequiresPasswordChange()
+        );
+    }
+
+    private AuthUserSummaryResponse mapUserSummary(UserAuth user) {
+        return new AuthUserSummaryResponse(user.getId(), user.getEmail(), user.getRole().name(), user.isActive());
+    }
+
     private void validateUserAccess(UserAuth user) {
         if (!user.isActive()) {
             throw new InvalidCredentialsException();
@@ -162,6 +240,7 @@ public class AuthServiceImpl implements AuthService {
 
     private void updateUserPassword(UserAuth user, String newPassword) {
         user.setPasswordHash(passwordEncoder.encode(newPassword));
+        user.setRequiresPasswordChange(false);
         user.setUpdatedAt(LocalDateTime.now());
         repository.save(user);
     }
@@ -173,6 +252,7 @@ public class AuthServiceImpl implements AuthService {
                 .passwordHash(passwordEncoder.encode(request.password()))
                 .role(request.role())
                 .active(true)
+                .requiresPasswordChange(false)
                 .failedLoginAttempts(0)
                 .lockedUntil(null)
                 .createdAt(now)
@@ -201,7 +281,30 @@ public class AuthServiceImpl implements AuthService {
         return authorizationHeader.substring(AuthConstants.BEARER_PREFIX.length()).trim();
     }
 
+    private void publishUserCreatedEvent(UUID userId, String name, String phone) {
+        if (!applicationContext.containsBean("kafkaTemplate")) {
+            log.warn("KafkaTemplate no configurado. Se omite USER_CREATED para userId={}", userId);
+            return;
+        }
+
+        Object kafkaTemplate = applicationContext.getBean("kafkaTemplate");
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("event", "USER_CREATED");
+        payload.put("id", userId.toString());
+        payload.put("name", name);
+        payload.put("phone", phone);
+
+        try {
+            kafkaTemplate.getClass()
+                    .getMethod("send", String.class, Object.class)
+                    .invoke(kafkaTemplate, "user-events", payload);
+        } catch (Exception exception) {
+            log.error("Error publicando USER_CREATED para userId={}", userId, exception);
+        }
+    }
+
     private String normalizeEmail(String email) {
         return email == null ? "" : email.trim().toLowerCase();
     }
 }
+

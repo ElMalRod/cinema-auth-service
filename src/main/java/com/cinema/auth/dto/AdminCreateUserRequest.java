@@ -6,14 +6,10 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
-public record RegisterRequest(
-        @NotBlank String name,
-        String phone,
+public record AdminCreateUserRequest(
         @NotBlank @Email String email,
         @NotBlank @Size(min = 8, max = 100) String password,
-        @NotNull UserRole role
+        @NotNull UserRole role,
+        boolean forcePasswordChange
 ) {
-    public RegisterRequest(String email, String password, UserRole role) {
-        this("Usuario", null, email, password, role);
-    }
 }

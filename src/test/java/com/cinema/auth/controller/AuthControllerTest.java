@@ -51,7 +51,7 @@ class AuthControllerTest {
     void shouldRegisterUser() throws Exception {
         // Arrange
         UUID userId = UUID.randomUUID();
-        RegisterRequest request = new RegisterRequest("admin@test.com", "password123", UserRole.SYSTEM_ADMIN);
+        RegisterRequest request = new RegisterRequest("Admin Test", "5551234", "admin@test.com", "password123", UserRole.SYSTEM_ADMIN);
         LoginResponse response = new LoginResponse("token-value", userId, "admin@test.com", "SYSTEM_ADMIN");
         when(authService.register(any(RegisterRequest.class))).thenReturn(response);
 
@@ -163,3 +163,4 @@ class AuthControllerTest {
         action.andExpect(status().isNoContent());
     }
 }
+

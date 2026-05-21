@@ -36,6 +36,7 @@ public class TokenRevocationService {
         repository.save(token);
     }
 
+    @Transactional
     public boolean isRevoked(String rawToken) {
         cleanupExpired();
         return repository.existsByTokenHash(tokenHashService.hash(rawToken));

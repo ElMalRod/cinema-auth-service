@@ -26,8 +26,17 @@ public final class AuthConstants {
     public static final String AUTH_RESET_PASSWORD_PATH = "/reset-password";
     public static final String AUTH_CHANGE_PASSWORD_PATH = "/change-password";
     public static final String AUTH_DEACTIVATE_PATH = "/deactivate/{id}";
+    public static final String AUTH_ACTIVATE_PATH = "/activate/{id}";
+    public static final String AUTH_EXISTS_ADMIN_PATH = "/exists-admin";
+    public static final String AUTH_ADMIN_CREATE_USER_PATH = "/admin/create-user";
+    public static final String AUTH_ADMIN_LIST_PATH = "/admin/list";
+    public static final String AUTH_ADMIN_DEACTIVATE_PATH = "/admin/deactivate/{id}";
+    public static final String AUTH_ADMIN_ACTIVATE_PATH = "/admin/activate/{id}";
+
     public static final String AUTHORIZATION_HEADER = "Authorization";
     public static final String BEARER_PREFIX = "Bearer ";
+    public static final String INTERNAL_SERVICE_HEADER = "X-Internal-Service";
+    public static final String INTERNAL_SERVICE_HEADER_VALUE = "true";
 
     public static final String PEM_PUBLIC_KEY_BEGIN = "-----BEGIN PUBLIC KEY-----";
     public static final String PEM_PUBLIC_KEY_END = "-----END PUBLIC KEY-----";
