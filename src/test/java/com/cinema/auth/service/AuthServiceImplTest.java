@@ -11,6 +11,7 @@ import com.cinema.auth.dto.RegisterRequest;
 import com.cinema.auth.dto.ResetPasswordRequest;
 import com.cinema.auth.exception.AccountLockedException;
 import com.cinema.auth.exception.InvalidCredentialsException;
+import com.cinema.auth.exception.InvalidRegistrationException;
 import com.cinema.auth.exception.InvalidTokenException;
 import com.cinema.auth.exception.UserAlreadyExistsException;
 import com.cinema.auth.exception.UserNotFoundException;
@@ -23,12 +24,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.context.ApplicationContext;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -60,7 +59,7 @@ class AuthServiceImplTest {
     private TokenRevocationService tokenRevocationService;
 
     @Mock
-    private ApplicationContext applicationContext;
+    private UserEventPublisher userEventPublisher;
 
     private AuthServiceImpl authService;
 
@@ -72,24 +71,21 @@ class AuthServiceImplTest {
                 jwtProvider,
                 passwordResetService,
                 tokenRevocationService,
-                applicationContext,
+                userEventPublisher,
                 5,
                 15
         );
     }
 
     @Test
-    void shouldRegisterUserAndReturnToken() {
+    void shouldRegisterClientAndPublishUserCreated() {
         // Arrange
-        RegisterRequest request = new RegisterRequest("Admin Test", "5551234", "admin@test.com", "password123", UserRole.SYSTEM_ADMIN);
+        RegisterRequest request = new RegisterRequest("Cliente Uno", "5551234", "cliente@test.com", "password123", UserRole.CLIENT);
         UUID userId = UUID.randomUUID();
-        FakeKafkaTemplate fakeKafkaTemplate = new FakeKafkaTemplate();
-        when(repository.existsByEmail("admin@test.com")).thenReturn(false);
+        when(repository.existsByEmail("cliente@test.com")).thenReturn(false);
         when(passwordEncoder.encode("password123")).thenReturn("encoded-password");
-        when(repository.save(any(UserAuth.class))).thenReturn(buildUser(userId, "admin@test.com", "encoded-password", UserRole.SYSTEM_ADMIN));
-        when(jwtProvider.generateToken(userId, "admin@test.com", UserRole.SYSTEM_ADMIN)).thenReturn("jwt-token");
-        when(applicationContext.containsBean("kafkaTemplate")).thenReturn(true);
-        when(applicationContext.getBean("kafkaTemplate")).thenReturn(fakeKafkaTemplate);
+        when(repository.save(any(UserAuth.class))).thenReturn(buildUser(userId, "cliente@test.com", "encoded-password", UserRole.CLIENT));
+        when(jwtProvider.generateToken(userId, "cliente@test.com", UserRole.CLIENT)).thenReturn("jwt-token");
 
         // Act
         LoginResponse response = authService.register(request);
@@ -99,14 +95,72 @@ class AuthServiceImplTest {
         verify(repository).save(captor.capture());
         assertEquals("encoded-password", captor.getValue().getPasswordHash());
         assertEquals("jwt-token", response.token());
-        assertEquals(userId, response.userId());
-        @SuppressWarnings("unchecked")
-        Map<String, Object> payload = (Map<String, Object>) fakeKafkaTemplate.payload;
-        assertEquals("user-events", fakeKafkaTemplate.topic);
-        assertEquals("USER_CREATED", payload.get("event"));
-        assertEquals(userId.toString(), payload.get("id"));
-        assertEquals("Admin Test", payload.get("name"));
-        assertEquals("5551234", payload.get("phone"));
+        verify(userEventPublisher).publishUserCreated(userId, "Cliente Uno", "5551234");
+    }
+
+    @Test
+    void shouldRegisterCinemaAdminWithCompanyNameAndPublishCinemaAdminCreated() {
+        // Arrange
+        RegisterRequest request = new RegisterRequest(
+                "Admin Cine",
+                "5552222",
+                "Cinema Central",
+                "cineadmin@test.com",
+                "password123",
+                UserRole.CINEMA_ADMIN
+        );
+        UUID userId = UUID.randomUUID();
+        when(repository.existsByEmail("cineadmin@test.com")).thenReturn(false);
+        when(passwordEncoder.encode("password123")).thenReturn("encoded-password");
+        when(repository.save(any(UserAuth.class))).thenReturn(buildUser(userId, "cineadmin@test.com", "encoded-password", UserRole.CINEMA_ADMIN));
+        when(jwtProvider.generateToken(userId, "cineadmin@test.com", UserRole.CINEMA_ADMIN)).thenReturn("jwt-token");
+
+        // Act
+        LoginResponse response = authService.register(request);
+
+        // Assert
+        assertEquals("jwt-token", response.token());
+        verify(userEventPublisher).publishCinemaAdminCreated(userId, "Admin Cine", "5552222", "Cinema Central");
+    }
+
+    @Test
+    void shouldThrowWhenRegisteringCinemaAdminWithoutCompanyName() {
+        // Arrange
+        RegisterRequest request = new RegisterRequest(
+                "Admin Cine",
+                "5552222",
+                "   ",
+                "cineadmin@test.com",
+                "password123",
+                UserRole.CINEMA_ADMIN
+        );
+        when(repository.existsByEmail("cineadmin@test.com")).thenReturn(false);
+
+        // Act
+        RuntimeException exception = assertThrows(InvalidRegistrationException.class, () -> authService.register(request));
+
+        // Assert
+        assertEquals("El nombre de la empresa/cine es obligatorio para CINEMA_ADMIN", exception.getMessage());
+        verify(repository, never()).save(any(UserAuth.class));
+        verify(userEventPublisher, never()).publishCinemaAdminCreated(any(), any(), any(), any());
+    }
+
+    @Test
+    void shouldRegisterAdvertiserAndPublishAdvertiserCreated() {
+        // Arrange
+        RegisterRequest request = new RegisterRequest("Anunciante Uno", "5553333", "ads@test.com", "password123", UserRole.ADVERTISER);
+        UUID userId = UUID.randomUUID();
+        when(repository.existsByEmail("ads@test.com")).thenReturn(false);
+        when(passwordEncoder.encode("password123")).thenReturn("encoded-password");
+        when(repository.save(any(UserAuth.class))).thenReturn(buildUser(userId, "ads@test.com", "encoded-password", UserRole.ADVERTISER));
+        when(jwtProvider.generateToken(userId, "ads@test.com", UserRole.ADVERTISER)).thenReturn("jwt-token");
+
+        // Act
+        LoginResponse response = authService.register(request);
+
+        // Assert
+        assertEquals("jwt-token", response.token());
+        verify(userEventPublisher).publishAdvertiserCreated(userId, "Anunciante Uno", "5553333");
     }
 
     @Test
@@ -359,16 +413,4 @@ class AuthServiceImplTest {
                 .updatedAt(now)
                 .build();
     }
-
-    private static final class FakeKafkaTemplate {
-        private String topic;
-        private Object payload;
-
-        public void send(String topic, Object payload) {
-            this.topic = topic;
-            this.payload = payload;
-        }
-    }
 }
-
-

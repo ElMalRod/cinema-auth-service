@@ -50,6 +50,12 @@ public class GlobalExceptionHandler {
         return buildErrorResponse(exception.getMessage(), HttpStatus.CONFLICT, request.getRequestURI());
     }
 
+
+    @ExceptionHandler(InvalidRegistrationException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidRegistration(InvalidRegistrationException exception,
+                                                                    HttpServletRequest request) {
+        return buildErrorResponse(exception.getMessage(), HttpStatus.BAD_REQUEST, request.getRequestURI());
+    }
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ErrorResponse> handleValidation(MethodArgumentNotValidException exception,
                                                           HttpServletRequest request) {
@@ -75,3 +81,4 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(status).body(response);
     }
 }
+

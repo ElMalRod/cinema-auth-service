@@ -15,6 +15,7 @@ import com.cinema.auth.dto.RegisterRequest;
 import com.cinema.auth.dto.ResetPasswordRequest;
 import com.cinema.auth.exception.AccountLockedException;
 import com.cinema.auth.exception.InvalidCredentialsException;
+import com.cinema.auth.exception.InvalidRegistrationException;
 import com.cinema.auth.exception.InvalidTokenException;
 import com.cinema.auth.exception.UserAlreadyExistsException;
 import com.cinema.auth.exception.UserNotFoundException;
@@ -24,16 +25,13 @@ import com.cinema.auth.security.JwtProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.ApplicationContext;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -46,7 +44,7 @@ public class AuthServiceImpl implements AuthService {
     private final JwtProvider jwtProvider;
     private final PasswordResetService passwordResetService;
     private final TokenRevocationService tokenRevocationService;
-    private final ApplicationContext applicationContext;
+    private final UserEventPublisher userEventPublisher;
     private final int maxFailedAttempts;
     private final int lockMinutes;
 
@@ -56,7 +54,7 @@ public class AuthServiceImpl implements AuthService {
             JwtProvider jwtProvider,
             PasswordResetService passwordResetService,
             TokenRevocationService tokenRevocationService,
-            ApplicationContext applicationContext,
+            UserEventPublisher userEventPublisher,
             @Value("${auth.security.max-failed-attempts:5}") int maxFailedAttempts,
             @Value("${auth.security.lock-minutes:15}") int lockMinutes
     ) {
@@ -65,7 +63,7 @@ public class AuthServiceImpl implements AuthService {
         this.jwtProvider = jwtProvider;
         this.passwordResetService = passwordResetService;
         this.tokenRevocationService = tokenRevocationService;
-        this.applicationContext = applicationContext;
+        this.userEventPublisher = userEventPublisher;
         this.maxFailedAttempts = maxFailedAttempts;
         this.lockMinutes = lockMinutes;
     }
@@ -77,8 +75,9 @@ public class AuthServiceImpl implements AuthService {
         if (repository.existsByEmail(email)) {
             throw new UserAlreadyExistsException();
         }
+        validateCompanyNameForCinemaAdmin(request);
         UserAuth savedUser = repository.save(buildUser(request, email));
-        publishUserCreatedEvent(savedUser.getId(), request.name(), request.phone());
+        publishRegistrationEvent(savedUser.getId(), request);
         return buildLoginResponse(savedUser);
     }
 
@@ -171,6 +170,31 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public List<AuthUserSummaryResponse> listUsers() {
         return repository.findAllByOrderByCreatedAtDesc().stream().map(this::mapUserSummary).toList();
+    }
+
+    private void validateCompanyNameForCinemaAdmin(RegisterRequest request) {
+        if (request.role() != UserRole.CINEMA_ADMIN) {
+            return;
+        }
+        if (request.companyName() == null || request.companyName().trim().isEmpty()) {
+            throw new InvalidRegistrationException("El nombre de la empresa/cine es obligatorio para CINEMA_ADMIN");
+        }
+    }
+
+    private void publishRegistrationEvent(UUID userId, RegisterRequest request) {
+        try {
+            if (request.role() == UserRole.CINEMA_ADMIN) {
+                userEventPublisher.publishCinemaAdminCreated(userId, request.name(), request.phone(), request.companyName().trim());
+                return;
+            }
+            if (request.role() == UserRole.ADVERTISER) {
+                userEventPublisher.publishAdvertiserCreated(userId, request.name(), request.phone());
+                return;
+            }
+            userEventPublisher.publishUserCreated(userId, request.name(), request.phone());
+        } catch (Exception exception) {
+            log.error("Error publicando evento de registro para userId={} role={}", userId, request.role(), exception);
+        }
     }
 
     private UserAuth buildUserForAdmin(AdminCreateUserRequest request, String email) {
@@ -281,30 +305,9 @@ public class AuthServiceImpl implements AuthService {
         return authorizationHeader.substring(AuthConstants.BEARER_PREFIX.length()).trim();
     }
 
-    private void publishUserCreatedEvent(UUID userId, String name, String phone) {
-        if (!applicationContext.containsBean("kafkaTemplate")) {
-            log.warn("KafkaTemplate no configurado. Se omite USER_CREATED para userId={}", userId);
-            return;
-        }
-
-        Object kafkaTemplate = applicationContext.getBean("kafkaTemplate");
-        Map<String, Object> payload = new HashMap<>();
-        payload.put("event", "USER_CREATED");
-        payload.put("id", userId.toString());
-        payload.put("name", name);
-        payload.put("phone", phone);
-
-        try {
-            kafkaTemplate.getClass()
-                    .getMethod("send", String.class, Object.class)
-                    .invoke(kafkaTemplate, "user-events", payload);
-        } catch (Exception exception) {
-            log.error("Error publicando USER_CREATED para userId={}", userId, exception);
-        }
-    }
-
     private String normalizeEmail(String email) {
         return email == null ? "" : email.trim().toLowerCase();
     }
 }
+
 
