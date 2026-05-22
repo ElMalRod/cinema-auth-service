@@ -77,7 +77,7 @@ public class AuthServiceImpl implements AuthService {
         }
         validateCompanyNameForCinemaAdmin(request);
         UserAuth savedUser = repository.save(buildUser(request, email));
-        publishRegistrationEvent(savedUser.getId(), request);
+        publishCreatedEvent(savedUser.getId(), request.role(), request.name(), request.phone(), request.companyName());
         return buildLoginResponse(savedUser);
     }
 
@@ -164,6 +164,7 @@ public class AuthServiceImpl implements AuthService {
         }
         UserAuth user = buildUserForAdmin(request, email);
         UserAuth savedUser = repository.save(user);
+        publishCreatedEvent(savedUser.getId(), request.role(), request.name(), request.phone(), request.companyName());
         return mapAdminCreateResponse(savedUser);
     }
 
@@ -181,20 +182,37 @@ public class AuthServiceImpl implements AuthService {
         }
     }
 
-    private void publishRegistrationEvent(UUID userId, RegisterRequest request) {
+    private void publishCreatedEvent(UUID userId, UserRole role, String name, String phone, String companyName) {
+        String normalizedName = normalizeName(name);
+        String normalizedPhone = normalizeOptional(phone);
+        String normalizedCompanyName = normalizeOptional(companyName);
+
         try {
-            if (request.role() == UserRole.CINEMA_ADMIN) {
-                userEventPublisher.publishCinemaAdminCreated(userId, request.name(), request.phone(), request.companyName().trim());
+            if (role == UserRole.CINEMA_ADMIN) {
+                userEventPublisher.publishCinemaAdminCreated(userId, normalizedName, normalizedPhone, normalizedCompanyName);
                 return;
             }
-            if (request.role() == UserRole.ADVERTISER) {
-                userEventPublisher.publishAdvertiserCreated(userId, request.name(), request.phone());
+            if (role == UserRole.ADVERTISER) {
+                userEventPublisher.publishAdvertiserCreated(userId, normalizedName, normalizedPhone);
                 return;
             }
-            userEventPublisher.publishUserCreated(userId, request.name(), request.phone());
+            userEventPublisher.publishUserCreated(userId, normalizedName, normalizedPhone);
         } catch (Exception exception) {
-            log.error("Error publicando evento de registro para userId={} role={}", userId, request.role(), exception);
+            log.error("Error publicando evento de registro para userId={} role={}", userId, role, exception);
         }
+    }
+
+    private String normalizeName(String name) {
+        String normalized = normalizeOptional(name);
+        return normalized == null ? "Usuario" : normalized;
+    }
+
+    private String normalizeOptional(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmedValue = value.trim();
+        return trimmedValue.isEmpty() ? null : trimmedValue;
     }
 
     private UserAuth buildUserForAdmin(AdminCreateUserRequest request, String email) {
@@ -309,5 +327,3 @@ public class AuthServiceImpl implements AuthService {
         return email == null ? "" : email.trim().toLowerCase();
     }
 }
-
-

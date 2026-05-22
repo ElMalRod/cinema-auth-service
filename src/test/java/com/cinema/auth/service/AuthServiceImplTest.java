@@ -1,7 +1,9 @@
-package com.cinema.auth.service;
+﻿package com.cinema.auth.service;
 
 import com.cinema.auth.domain.UserAuth;
 import com.cinema.auth.domain.UserRole;
+import com.cinema.auth.dto.AdminCreateUserRequest;
+import com.cinema.auth.dto.AdminCreateUserResponse;
 import com.cinema.auth.dto.ChangePasswordRequest;
 import com.cinema.auth.dto.ForgotPasswordRequest;
 import com.cinema.auth.dto.LoginRequest;
@@ -399,6 +401,79 @@ class AuthServiceImplTest {
         assertEquals("Usuario no encontrado", exception.getMessage());
     }
 
+
+    @Test
+    void shouldCreateUserByAdminAndPublishUserCreatedForClient() {
+        // Arrange
+        UUID userId = UUID.randomUUID();
+        AdminCreateUserRequest request = new AdminCreateUserRequest(
+                "Cliente Admin",
+                "50112233",
+                null,
+                "client-admin@test.com",
+                "password123",
+                UserRole.CLIENT,
+                true
+        );
+        when(repository.existsByEmail("client-admin@test.com")).thenReturn(false);
+        when(passwordEncoder.encode("password123")).thenReturn("encoded-password");
+        when(repository.save(any(UserAuth.class))).thenReturn(buildUser(userId, "client-admin@test.com", "encoded-password", UserRole.CLIENT));
+
+        // Act
+        AdminCreateUserResponse response = authService.createUserByAdmin(request);
+
+        // Assert
+        assertEquals(userId, response.id());
+        verify(userEventPublisher).publishUserCreated(userId, "Cliente Admin", "50112233");
+    }
+
+    @Test
+    void shouldCreateUserByAdminAndPublishCinemaAdminCreatedWithOptionalCompanyName() {
+        // Arrange
+        UUID userId = UUID.randomUUID();
+        AdminCreateUserRequest request = new AdminCreateUserRequest(
+                "Admin Cine",
+                "55443322",
+                "  ",
+                "cinema-admin@test.com",
+                "password123",
+                UserRole.CINEMA_ADMIN,
+                true
+        );
+        when(repository.existsByEmail("cinema-admin@test.com")).thenReturn(false);
+        when(passwordEncoder.encode("password123")).thenReturn("encoded-password");
+        when(repository.save(any(UserAuth.class))).thenReturn(buildUser(userId, "cinema-admin@test.com", "encoded-password", UserRole.CINEMA_ADMIN));
+
+        // Act
+        authService.createUserByAdmin(request);
+
+        // Assert
+        verify(userEventPublisher).publishCinemaAdminCreated(userId, "Admin Cine", "55443322", null);
+    }
+
+    @Test
+    void shouldCreateUserByAdminAndPublishAdvertiserCreated() {
+        // Arrange
+        UUID userId = UUID.randomUUID();
+        AdminCreateUserRequest request = new AdminCreateUserRequest(
+                "Anunciante Admin",
+                "44556677",
+                null,
+                "advertiser-admin@test.com",
+                "password123",
+                UserRole.ADVERTISER,
+                true
+        );
+        when(repository.existsByEmail("advertiser-admin@test.com")).thenReturn(false);
+        when(passwordEncoder.encode("password123")).thenReturn("encoded-password");
+        when(repository.save(any(UserAuth.class))).thenReturn(buildUser(userId, "advertiser-admin@test.com", "encoded-password", UserRole.ADVERTISER));
+
+        // Act
+        authService.createUserByAdmin(request);
+
+        // Assert
+        verify(userEventPublisher).publishAdvertiserCreated(userId, "Anunciante Admin", "44556677");
+    }
     private UserAuth buildUser(UUID userId, String email, String passwordHash, UserRole role) {
         LocalDateTime now = LocalDateTime.now();
         return UserAuth.builder()
@@ -414,3 +489,7 @@ class AuthServiceImplTest {
                 .build();
     }
 }
+
+
+
+
