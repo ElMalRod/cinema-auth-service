@@ -1,4 +1,4 @@
-﻿package com.cinema.auth.service;
+package com.cinema.auth.service;
 
 import com.cinema.auth.domain.UserAuth;
 import com.cinema.auth.domain.UserRole;
