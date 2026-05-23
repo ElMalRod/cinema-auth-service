@@ -75,7 +75,7 @@ public class AuthServiceImpl implements AuthService {
         if (repository.existsByEmail(email)) {
             throw new UserAlreadyExistsException();
         }
-        validateCompanyNameForCinemaAdmin(request);
+        validatePublicRegisterRole(request.role());
         UserAuth savedUser = repository.save(buildUser(request, email));
         publishCreatedEvent(savedUser.getId(), request.role(), request.name(), request.phone(), request.companyName());
         return buildLoginResponse(savedUser);
@@ -173,13 +173,11 @@ public class AuthServiceImpl implements AuthService {
         return repository.findAllByOrderByCreatedAtDesc().stream().map(this::mapUserSummary).toList();
     }
 
-    private void validateCompanyNameForCinemaAdmin(RegisterRequest request) {
-        if (request.role() != UserRole.CINEMA_ADMIN) {
+    private void validatePublicRegisterRole(UserRole role) {
+        if (role == UserRole.CLIENT || role == UserRole.ADVERTISER) {
             return;
         }
-        if (request.companyName() == null || request.companyName().trim().isEmpty()) {
-            throw new InvalidRegistrationException("El nombre de la empresa/cine es obligatorio para CINEMA_ADMIN");
-        }
+        throw new InvalidRegistrationException("Solo se permite registro publico para CLIENT y ADVERTISER");
     }
 
     private void publishCreatedEvent(UUID userId, UserRole role, String name, String phone, String companyName) {
@@ -327,3 +325,4 @@ public class AuthServiceImpl implements AuthService {
         return email == null ? "" : email.trim().toLowerCase();
     }
 }
+

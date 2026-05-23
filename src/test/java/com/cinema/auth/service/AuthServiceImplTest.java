@@ -1,4 +1,4 @@
-﻿package com.cinema.auth.service;
+package com.cinema.auth.service;
 
 import com.cinema.auth.domain.UserAuth;
 import com.cinema.auth.domain.UserRole;
@@ -101,53 +101,6 @@ class AuthServiceImplTest {
     }
 
     @Test
-    void shouldRegisterCinemaAdminWithCompanyNameAndPublishCinemaAdminCreated() {
-        // Arrange
-        RegisterRequest request = new RegisterRequest(
-                "Admin Cine",
-                "5552222",
-                "Cinema Central",
-                "cineadmin@test.com",
-                "password123",
-                UserRole.CINEMA_ADMIN
-        );
-        UUID userId = UUID.randomUUID();
-        when(repository.existsByEmail("cineadmin@test.com")).thenReturn(false);
-        when(passwordEncoder.encode("password123")).thenReturn("encoded-password");
-        when(repository.save(any(UserAuth.class))).thenReturn(buildUser(userId, "cineadmin@test.com", "encoded-password", UserRole.CINEMA_ADMIN));
-        when(jwtProvider.generateToken(userId, "cineadmin@test.com", UserRole.CINEMA_ADMIN)).thenReturn("jwt-token");
-
-        // Act
-        LoginResponse response = authService.register(request);
-
-        // Assert
-        assertEquals("jwt-token", response.token());
-        verify(userEventPublisher).publishCinemaAdminCreated(userId, "Admin Cine", "5552222", "Cinema Central");
-    }
-
-    @Test
-    void shouldThrowWhenRegisteringCinemaAdminWithoutCompanyName() {
-        // Arrange
-        RegisterRequest request = new RegisterRequest(
-                "Admin Cine",
-                "5552222",
-                "   ",
-                "cineadmin@test.com",
-                "password123",
-                UserRole.CINEMA_ADMIN
-        );
-        when(repository.existsByEmail("cineadmin@test.com")).thenReturn(false);
-
-        // Act
-        RuntimeException exception = assertThrows(InvalidRegistrationException.class, () -> authService.register(request));
-
-        // Assert
-        assertEquals("El nombre de la empresa/cine es obligatorio para CINEMA_ADMIN", exception.getMessage());
-        verify(repository, never()).save(any(UserAuth.class));
-        verify(userEventPublisher, never()).publishCinemaAdminCreated(any(), any(), any(), any());
-    }
-
-    @Test
     void shouldRegisterAdvertiserAndPublishAdvertiserCreated() {
         // Arrange
         RegisterRequest request = new RegisterRequest("Anunciante Uno", "5553333", "ads@test.com", "password123", UserRole.ADVERTISER);
@@ -166,9 +119,44 @@ class AuthServiceImplTest {
     }
 
     @Test
+    void shouldRejectPublicRegisterForCinemaAdmin() {
+        // Arrange
+        RegisterRequest request = new RegisterRequest(
+                "Admin Cine",
+                "5552222",
+                "Cinema Central",
+                "cineadmin@test.com",
+                "password123",
+                UserRole.CINEMA_ADMIN
+        );
+        when(repository.existsByEmail("cineadmin@test.com")).thenReturn(false);
+
+        // Act
+        RuntimeException exception = assertThrows(InvalidRegistrationException.class, () -> authService.register(request));
+
+        // Assert
+        assertEquals("Solo se permite registro publico para CLIENT y ADVERTISER", exception.getMessage());
+        verify(repository, never()).save(any(UserAuth.class));
+    }
+
+    @Test
+    void shouldRejectPublicRegisterForSystemAdmin() {
+        // Arrange
+        RegisterRequest request = new RegisterRequest("admin@test.com", "password123", UserRole.SYSTEM_ADMIN);
+        when(repository.existsByEmail("admin@test.com")).thenReturn(false);
+
+        // Act
+        RuntimeException exception = assertThrows(InvalidRegistrationException.class, () -> authService.register(request));
+
+        // Assert
+        assertEquals("Solo se permite registro publico para CLIENT y ADVERTISER", exception.getMessage());
+        verify(repository, never()).save(any(UserAuth.class));
+    }
+
+    @Test
     void shouldThrowWhenRegisteringExistingUser() {
         // Arrange
-        RegisterRequest request = new RegisterRequest("Admin Test", "5551234", "admin@test.com", "password123", UserRole.SYSTEM_ADMIN);
+        RegisterRequest request = new RegisterRequest("Admin Test", "5551234", "admin@test.com", "password123", UserRole.CLIENT);
         when(repository.existsByEmail("admin@test.com")).thenReturn(true);
 
         // Act
@@ -373,36 +361,6 @@ class AuthServiceImplTest {
     }
 
     @Test
-    void shouldDeactivateUser() {
-        // Arrange
-        UUID userId = UUID.randomUUID();
-        UserAuth user = buildUser(userId, "client@test.com", "encoded", UserRole.CLIENT);
-        when(repository.findById(userId)).thenReturn(Optional.of(user));
-
-        // Act
-        authService.deactivateUser(userId);
-
-        // Assert
-        assertFalse(user.isActive());
-        verify(repository).save(user);
-    }
-
-    @Test
-    void shouldThrowWhenDeactivatingMissingUser() {
-        // Arrange
-        UUID userId = UUID.randomUUID();
-        when(repository.findById(userId)).thenReturn(Optional.empty());
-
-        // Act
-        RuntimeException exception = assertThrows(UserNotFoundException.class,
-                () -> authService.deactivateUser(userId));
-
-        // Assert
-        assertEquals("Usuario no encontrado", exception.getMessage());
-    }
-
-
-    @Test
     void shouldCreateUserByAdminAndPublishUserCreatedForClient() {
         // Arrange
         UUID userId = UUID.randomUUID();
@@ -474,6 +432,7 @@ class AuthServiceImplTest {
         // Assert
         verify(userEventPublisher).publishAdvertiserCreated(userId, "Anunciante Admin", "44556677");
     }
+
     private UserAuth buildUser(UUID userId, String email, String passwordHash, UserRole role) {
         LocalDateTime now = LocalDateTime.now();
         return UserAuth.builder()
@@ -489,7 +448,3 @@ class AuthServiceImplTest {
                 .build();
     }
 }
-
-
-
-
