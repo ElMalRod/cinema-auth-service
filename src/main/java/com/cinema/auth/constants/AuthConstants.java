@@ -12,6 +12,7 @@ public final class AuthConstants {
     public static final String JWT_ISSUER = "cinema-auth-service";
     public static final String JWT_CLAIM_EMAIL = "email";
     public static final String JWT_CLAIM_ROLES = "roles";
+    public static final String JWT_KEY_ID = "cinema-key";
     public static final long JWT_DEFAULT_EXPIRATION_SECONDS = 3600L;
 
     public static final String RSA_ALGORITHM = "RSA";

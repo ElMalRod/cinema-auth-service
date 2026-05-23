@@ -74,7 +74,10 @@ public class JwtProvider {
     }
 
     private SignedJWT createSignedJwt(JWTClaimsSet claims) {
-        return new SignedJWT(new JWSHeader(JWSAlgorithm.RS256), claims);
+        JWSHeader header = new JWSHeader.Builder(JWSAlgorithm.RS256)
+                .keyID(AuthConstants.JWT_KEY_ID)
+                .build();
+        return new SignedJWT(header, claims);
     }
 
     private void signToken(SignedJWT signedJwt) {
