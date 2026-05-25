@@ -1,6 +1,7 @@
 package com.cinema.auth.controller;
 
 import com.cinema.auth.config.SecurityConfig;
+import com.cinema.auth.constants.AuthConstants;
 import com.cinema.auth.domain.UserRole;
 import com.cinema.auth.security.JwtPrincipal;
 import com.cinema.auth.security.JwtProvider;
@@ -10,6 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.Optional;
@@ -24,6 +26,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import(SecurityConfig.class)
 class AuthAuthorizationTest {
 
+    private static final UUID TARGET_USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000401");
+    private static final UUID PRINCIPAL_USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000402");
+    private static final String CLIENT_EMAIL = "client@test.com";
+    private static final String CLIENT_TOKEN = "client-token";
+    private static final String SYSTEM_ADMIN_TOKEN = "system-admin-token";
+
     @Autowired
     private MockMvc mockMvc;
 
@@ -34,45 +42,54 @@ class AuthAuthorizationTest {
     private JwtProvider jwtProvider;
 
     @Test
-    void shouldReturn401WhenDeactivateHasNoToken() throws Exception {
+    @WithMockUser(roles = "CLIENT")
+    void should_ReturnUnauthorized_When_UserIsAuthenticatedButAuthorizationHeaderIsMissing() throws Exception {
         // Arrange
-        UUID userId = UUID.randomUUID();
 
         // Act
-        var action = mockMvc.perform(patch("/auth/deactivate/{id}", userId));
+        var action = mockMvc.perform(patch("/auth/deactivate/{id}", TARGET_USER_ID));
 
         // Assert
         action.andExpect(status().isUnauthorized());
     }
 
     @Test
-    void shouldReturn403WhenRoleIsNotSystemAdmin() throws Exception {
+    void should_ReturnUnauthorized_When_DeactivateRequestHasNoAuthenticationToken() throws Exception {
         // Arrange
-        UUID userId = UUID.randomUUID();
-        JwtPrincipal principal = new JwtPrincipal(UUID.randomUUID(), "client@test.com", UserRole.CLIENT);
-        when(jwtProvider.parseToken("client-token")).thenReturn(Optional.of(principal));
 
         // Act
-        var action = mockMvc.perform(patch("/auth/deactivate/{id}", userId)
-                .header("Authorization", "Bearer client-token"));
+        var action = mockMvc.perform(patch("/auth/deactivate/{id}", TARGET_USER_ID));
+
+        // Assert
+        action.andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void should_ReturnForbidden_When_RoleIsNotSystemAdmin() throws Exception {
+        // Arrange
+        JwtPrincipal principal = new JwtPrincipal(PRINCIPAL_USER_ID, CLIENT_EMAIL, UserRole.CLIENT);
+        when(jwtProvider.parseToken(CLIENT_TOKEN)).thenReturn(Optional.of(principal));
+
+        // Act
+        var action = mockMvc.perform(patch("/auth/deactivate/{id}", TARGET_USER_ID)
+                .header(AuthConstants.AUTHORIZATION_HEADER, AuthConstants.BEARER_PREFIX + CLIENT_TOKEN));
 
         // Assert
         action.andExpect(status().isForbidden());
     }
 
     @Test
-    void shouldAllowSystemAdminToDeactivateUser() throws Exception {
+    void should_AllowDeactivate_When_RoleIsSystemAdmin() throws Exception {
         // Arrange
-        UUID userId = UUID.randomUUID();
-        JwtPrincipal principal = new JwtPrincipal(UUID.randomUUID(), "admin@test.com", UserRole.SYSTEM_ADMIN);
-        when(jwtProvider.parseToken("admin-token")).thenReturn(Optional.of(principal));
+        JwtPrincipal principal = new JwtPrincipal(PRINCIPAL_USER_ID, "admin@test.com", UserRole.SYSTEM_ADMIN);
+        when(jwtProvider.parseToken(SYSTEM_ADMIN_TOKEN)).thenReturn(Optional.of(principal));
 
         // Act
-        var action = mockMvc.perform(patch("/auth/deactivate/{id}", userId)
-                .header("Authorization", "Bearer admin-token"));
+        var action = mockMvc.perform(patch("/auth/deactivate/{id}", TARGET_USER_ID)
+                .header(AuthConstants.AUTHORIZATION_HEADER, AuthConstants.BEARER_PREFIX + SYSTEM_ADMIN_TOKEN));
 
         // Assert
         action.andExpect(status().isNoContent());
-        verify(authService).deactivateUser(userId);
+        verify(authService).deactivateUser(TARGET_USER_ID);
     }
 }
