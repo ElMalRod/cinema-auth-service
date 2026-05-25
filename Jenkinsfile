@@ -93,6 +93,7 @@ pipeline {
                                     --name cinema-auth-service \
                                     --restart unless-stopped \
                                     --network cinema-network \
+                                    -p 8081:8081 \
                                     -e SERVER_PORT=8081 \
                                     -e DB_URL='$DB_URL' \
                                     -e DB_USERNAME='$DB_USER' \
