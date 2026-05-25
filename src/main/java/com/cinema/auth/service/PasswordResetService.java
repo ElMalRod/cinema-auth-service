@@ -1,5 +1,6 @@
 package com.cinema.auth.service;
 
+import com.cinema.auth.constants.AuthConstants;
 import com.cinema.auth.domain.PasswordResetToken;
 import com.cinema.auth.domain.UserAuth;
 import com.cinema.auth.exception.ResetTokenException;
@@ -26,7 +27,6 @@ public class PasswordResetService {
     private final PasswordEncoder passwordEncoder;
     private final PasswordRecoveryNotificationService notificationService;
     private final String frontendBaseUrl;
-    private final String frontendPasswordRecoveryPath;
     private final int tokenExpirationMinutes;
 
     public PasswordResetService(
@@ -35,8 +35,7 @@ public class PasswordResetService {
             TokenHashService tokenHashService,
             PasswordEncoder passwordEncoder,
             PasswordRecoveryNotificationService notificationService,
-            @Value("${app.frontend-base-url}") String frontendBaseUrl,
-            @Value("${app.frontend-password-recovery-path}") String frontendPasswordRecoveryPath,
+            @Value("${app.frontend-base-url:http://cinema-frontend-s3.s3-website.us-east-2.amazonaws.com}") String frontendBaseUrl,
             @Value("${auth.reset-token.expiration-minutes:30}") int tokenExpirationMinutes
     ) {
         this.tokenRepository = tokenRepository;
@@ -45,7 +44,6 @@ public class PasswordResetService {
         this.passwordEncoder = passwordEncoder;
         this.notificationService = notificationService;
         this.frontendBaseUrl = frontendBaseUrl;
-        this.frontendPasswordRecoveryPath = frontendPasswordRecoveryPath;
         this.tokenExpirationMinutes = tokenExpirationMinutes;
     }
 
@@ -102,11 +100,13 @@ public class PasswordResetService {
     }
 
     private String buildRecoveryUrl(String plainToken) {
-        return normalizeFrontendBaseUrl() + normalizeFrontendRecoveryPath() + "?token=" + plainToken;
+        return normalizeFrontendBaseUrl() + "/reset-password?token=" + plainToken;
     }
 
     private String normalizeFrontendBaseUrl() {
-        String configured = frontendBaseUrl == null ? "" : frontendBaseUrl.trim();
+        String configured = (frontendBaseUrl == null || frontendBaseUrl.isBlank())
+                ? AuthConstants.DEFAULT_FRONTEND_BASE_URL
+                : frontendBaseUrl.trim();
         try {
             URI uri = URI.create(configured);
             if (uri.getScheme() != null && uri.getHost() != null) {
@@ -116,13 +116,5 @@ public class PasswordResetService {
         } catch (IllegalArgumentException ignored) {
         }
         return configured.replaceAll("/+$", "");
-    }
-
-    private String normalizeFrontendRecoveryPath() {
-        String configuredPath = frontendPasswordRecoveryPath == null ? "" : frontendPasswordRecoveryPath.trim();
-        if (configuredPath.isEmpty()) {
-            return "/forgot-password";
-        }
-        return configuredPath.startsWith("/") ? configuredPath : "/" + configuredPath;
     }
 }

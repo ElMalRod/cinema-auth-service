@@ -58,7 +58,7 @@ public final class AuthConstants {
     public static final String BREVO_BASE_URL = "https://api.brevo.com/v3";
     public static final String BREVO_API_KEY_HEADER = "api-key";
     public static final String BREVO_EMAIL_PATH = "/smtp/email";
-    public static final String DEFAULT_FRONTEND_BASE_URL = "http://localhost:4200";
+    public static final String DEFAULT_FRONTEND_BASE_URL = "http://cinema-frontend-s3.s3-website.us-east-2.amazonaws.com";
     public static final String DEFAULT_SENDER_NAME = "Cinema";
 
     private AuthConstants() {
