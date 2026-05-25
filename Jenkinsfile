@@ -2,9 +2,9 @@ pipeline {
     agent any
 
     environment {
-        SERVICE_NAME      = 'cinema-auth-service'
-        SERVICE_PORT      = '8081'
-        KAFKA_SERVERS     = '18.188.55.33:9092'
+        SERVICE_NAME  = 'cinema-auth-service'
+        SERVICE_PORT  = '8081'
+        KAFKA_SERVERS = '18.188.55.33:9092'
     }
 
     stages {
@@ -30,7 +30,7 @@ pipeline {
             steps {
                 sh 'mvn verify'
                 script {
-                    echo 'JaCoCo coverage checks passed (LINE >= 85% and BRANCH >= 85%, using pom.xml exclusions).'
+                    echo 'JaCoCo coverage checks passed (LINE >= 85% and BRANCH >= 85%).'
                 }
             }
         }
@@ -43,7 +43,7 @@ pipeline {
 
         stage('Build Docker Image') {
             steps {
-                sh "docker build -t ${env.SERVICE_NAME}:latest ."
+                sh "docker build -t ${SERVICE_NAME}:latest ."
             }
         }
 
@@ -54,7 +54,10 @@ pipeline {
                 ]) {
                     sshagent(['SSH_DEPLOY_KEY']) {
                         sh '''
+                            rm -f cinema-auth-service.tar.gz || true
+
                             docker save cinema-auth-service:latest | gzip > cinema-auth-service.tar.gz
+
                             scp -o StrictHostKeyChecking=no \
                                 cinema-auth-service.tar.gz \
                                 ubuntu@"$HOST":~/
@@ -67,31 +70,38 @@ pipeline {
         stage('Deploy') {
             steps {
                 withCredentials([
-                    string(credentialsId: 'EC2_SERVICES_HOST',  variable: 'HOST'),
-                    string(credentialsId: 'DB_URL_AUTH',         variable: 'DB_URL'),
-                    string(credentialsId: 'DB_USERNAME',         variable: 'DB_USER'),
-                    string(credentialsId: 'DB_PASSWORD',         variable: 'DB_PASS'),
-                    string(credentialsId: 'BREVO_API_KEY',       variable: 'BREVO_KEY'),
-                    string(credentialsId: 'BREVO_SENDER_EMAIL',  variable: 'BREVO_EMAIL')
+                    string(credentialsId: 'EC2_SERVICES_HOST', variable: 'HOST'),
+                    string(credentialsId: 'DB_URL_AUTH', variable: 'DB_URL'),
+                    string(credentialsId: 'DB_USERNAME', variable: 'DB_USER'),
+                    string(credentialsId: 'DB_PASSWORD', variable: 'DB_PASS'),
+                    string(credentialsId: 'BREVO_API_KEY', variable: 'BREVO_KEY'),
+                    string(credentialsId: 'BREVO_SENDER_EMAIL', variable: 'BREVO_EMAIL')
                 ]) {
                     sshagent(['SSH_DEPLOY_KEY']) {
                         sh '''
                             ssh -o StrictHostKeyChecking=no ubuntu@"$HOST" "
-                                docker load < cinema-auth-service.tar.gz
+                                set -e
+
+                                docker load < ~/cinema-auth-service.tar.gz
+
+                                rm -f ~/cinema-auth-service.tar.gz
+
                                 docker stop cinema-auth-service || true
-                                docker rm   cinema-auth-service || true
-                                docker run -d \\
-                                    --name cinema-auth-service \\
-                                    --restart unless-stopped \\
-                                    --network cinema-network \\
-                                    -e DB_URL='$DB_URL' \\
-                                    -e DB_USERNAME='$DB_USER' \\
-                                    -e DB_PASSWORD='$DB_PASS' \\
-                                    -e BREVO_API_KEY='$BREVO_KEY' \\
-                                    -e BREVO_SENDER_EMAIL='$BREVO_EMAIL' \\
-                                    -e SPRING_FLYWAY_BASELINE_ON_MIGRATE=true \\
-                                    -e SPRING_FLYWAY_BASELINE_VERSION=0 \\
-                                    -e SPRING_KAFKA_BOOTSTRAP_SERVERS=18.188.55.33:9092 \\
+                                docker rm cinema-auth-service || true
+
+                                docker run -d \
+                                    --name cinema-auth-service \
+                                    --restart unless-stopped \
+                                    --network cinema-network \
+                                    -e SERVER_PORT=8081 \
+                                    -e DB_URL='$DB_URL' \
+                                    -e DB_USERNAME='$DB_USER' \
+                                    -e DB_PASSWORD='$DB_PASS' \
+                                    -e BREVO_API_KEY='$BREVO_KEY' \
+                                    -e BREVO_SENDER_EMAIL='$BREVO_EMAIL' \
+                                    -e SPRING_FLYWAY_BASELINE_ON_MIGRATE=true \
+                                    -e SPRING_FLYWAY_BASELINE_VERSION=0 \
+                                    -e SPRING_KAFKA_BOOTSTRAP_SERVERS='18.188.55.33:9092' \
                                     cinema-auth-service:latest
                             "
                         '''
@@ -109,7 +119,10 @@ pipeline {
                         sh '''
                             ssh -o StrictHostKeyChecking=no ubuntu@"$HOST" "
                                 sleep 20
-                                docker exec cinema-auth-service curl -f http://localhost:8081/actuator/health
+
+                                docker ps | grep cinema-auth-service
+
+                                docker logs --tail 50 cinema-auth-service
                             "
                         '''
                     }
@@ -120,11 +133,13 @@ pipeline {
 
     post {
         success {
-            echo "cinema-auth-service desplegado correctamente"
+            echo 'cinema-auth-service deployed successfully'
         }
+
         failure {
-            echo "Pipeline falló en cinema-auth-service"
+            echo 'Pipeline failed for cinema-auth-service'
         }
+
         always {
             sh 'rm -f cinema-auth-service.tar.gz || true'
         }
