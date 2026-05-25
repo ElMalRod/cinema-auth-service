@@ -41,8 +41,9 @@ class PasswordResetServiceTest {
     private static final String NEW_PASSWORD = "new-password123";
     private static final String ENCODED_PASSWORD = "encoded-password";
     private static final String FRONTEND_BASE_URL = "https://frontend.cinema.com/app";
+    private static final String FRONTEND_RECOVERY_PATH = "/forgot-password";
+    private static final String FRONTEND_RECOVERY_PATH_WITHOUT_LEADING_SLASH = "forgot-password";
     private static final String INVALID_FRONTEND_BASE_URL = "frontend.local///";
-    private static final String DEFAULT_FRONTEND_BASE_URL = "http://localhost:4200";
     private static final int TOKEN_EXPIRATION_MINUTES = 30;
     private static final int FAILED_LOGIN_ATTEMPTS = 4;
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000501");
@@ -73,6 +74,7 @@ class PasswordResetServiceTest {
                 passwordEncoder,
                 notificationService,
                 FRONTEND_BASE_URL,
+                FRONTEND_RECOVERY_PATH,
                 TOKEN_EXPIRATION_MINUTES
         );
     }
@@ -127,19 +129,20 @@ class PasswordResetServiceTest {
 
         assertNotNull(oldToken.getUsedAt());
         assertEquals(TOKEN_HASH, newTokenCaptor.getValue().getTokenHash());
-        assertTrue(urlCaptor.getValue().startsWith("https://frontend.cinema.com/reset-password?token="));
+        assertTrue(urlCaptor.getValue().startsWith("https://frontend.cinema.com/forgot-password?token="));
     }
 
     @Test
-    void should_UseDefaultFrontendUrl_When_ConfiguredFrontendUrlIsBlank() {
+    void should_UseRecoveryPathWithLeadingSlash_When_PathHasNoLeadingSlash() {
         // Arrange
-        PasswordResetService serviceWithBlankUrl = new PasswordResetService(
+        PasswordResetService serviceWithPathWithoutLeadingSlash = new PasswordResetService(
                 tokenRepository,
                 userRepository,
                 tokenHashService,
                 passwordEncoder,
                 notificationService,
-                "   ",
+                FRONTEND_BASE_URL,
+                FRONTEND_RECOVERY_PATH_WITHOUT_LEADING_SLASH,
                 TOKEN_EXPIRATION_MINUTES
         );
         UserAuth user = buildUser(true);
@@ -148,12 +151,12 @@ class PasswordResetServiceTest {
         when(tokenHashService.hash(anyString())).thenReturn(TOKEN_HASH);
 
         // Act
-        serviceWithBlankUrl.request(USER_EMAIL);
+        serviceWithPathWithoutLeadingSlash.request(USER_EMAIL);
 
         // Assert
         ArgumentCaptor<String> urlCaptor = ArgumentCaptor.forClass(String.class);
         verify(notificationService).sendPasswordRecoveryEmail(org.mockito.ArgumentMatchers.eq(USER_EMAIL), urlCaptor.capture());
-        assertTrue(urlCaptor.getValue().startsWith(DEFAULT_FRONTEND_BASE_URL + "/reset-password?token="));
+        assertTrue(urlCaptor.getValue().startsWith("https://frontend.cinema.com/forgot-password?token="));
     }
 
     @Test
@@ -166,6 +169,7 @@ class PasswordResetServiceTest {
                 passwordEncoder,
                 notificationService,
                 INVALID_FRONTEND_BASE_URL,
+                FRONTEND_RECOVERY_PATH,
                 TOKEN_EXPIRATION_MINUTES
         );
         UserAuth user = buildUser(true);
@@ -179,7 +183,7 @@ class PasswordResetServiceTest {
         // Assert
         ArgumentCaptor<String> urlCaptor = ArgumentCaptor.forClass(String.class);
         verify(notificationService).sendPasswordRecoveryEmail(org.mockito.ArgumentMatchers.eq(USER_EMAIL), urlCaptor.capture());
-        assertTrue(urlCaptor.getValue().startsWith("frontend.local/reset-password?token="));
+        assertTrue(urlCaptor.getValue().startsWith("frontend.local/forgot-password?token="));
     }
 
     @Test
