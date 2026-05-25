@@ -44,7 +44,8 @@ auth:
     expiration-minutes: ${AUTH_RESET_TOKEN_EXPIRATION_MINUTES:30}
 
 app:
-  frontend-base-url: ${FRONTEND_BASE_URL:http://localhost:4200}
+  frontend-base-url: ${FRONTEND_BASE_URL:http://cinema-frontend-s3.s3-website.us-east-2.amazonaws.com}
+  frontend-password-recovery-path: ${FRONTEND_PASSWORD_RECOVERY_PATH:/forgot-password}
 
 notifications:
   brevo:
