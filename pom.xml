@@ -160,17 +160,6 @@
                                     </limits>
                                 </rule>
                             </rules>
-                            <excludes>
-                                <exclude>com/cinema/auth/CinemaAuthApplication*</exclude>
-                                <exclude>com/cinema/auth/constants/AuthConstants*</exclude>
-                                <exclude>com/cinema/auth/service/BrevoPasswordRecoveryNotificationService*</exclude>
-                                <exclude>com/cinema/auth/service/LogPasswordRecoveryNotificationService*</exclude>
-                                <exclude>com/cinema/auth/service/PasswordRecoveryNotificationService*</exclude>
-                                <exclude>com/cinema/auth/service/PasswordResetService*</exclude>
-                                <exclude>com/cinema/auth/service/TokenRevocationService*</exclude>
-                                <exclude>com/cinema/auth/security/TokenHashService*</exclude>
-                                <exclude>com/cinema/auth/controller/JwksController*</exclude>
-                            </excludes>
                         </configuration>
                     </execution>
                 </executions>
