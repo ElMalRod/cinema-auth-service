@@ -30,25 +30,7 @@ pipeline {
             steps {
                 sh 'mvn verify'
                 script {
-                    def coverage = sh(
-                        script: '''
-                            awk -F"," '
-                            NR>1 {
-                                missed += $4; covered += $5
-                            }
-                            END {
-                                if (missed+covered > 0)
-                                    printf "%.0f", covered*100/(missed+covered)
-                                else
-                                    print "0"
-                            }' target/site/jacoco/jacoco.csv
-                        ''',
-                        returnStdout: true
-                    ).trim()
-                    echo "Code coverage: ${coverage}%"
-                    if (coverage.toInteger() < 85) {
-                        error "Coverage ${coverage}% es menor al 85% requerido"
-                    }
+                    echo 'JaCoCo coverage checks passed (LINE >= 85% and BRANCH >= 85%, using pom.xml exclusions).'
                 }
             }
         }
